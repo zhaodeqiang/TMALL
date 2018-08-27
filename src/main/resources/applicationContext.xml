@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:aop="http://www.springframework.org/schema/aop"
+       xmlns:tx="http://www.springframework.org/schema/tx"
+       xsi:schemaLocation="
+       http://www.springframework.org/schema/context
+       http://www.springframework.org/schema/context/spring-context-4.0.xsd
+       http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans-4.0.xsd
+       http://www.springframework.org/schema/aop
+       http://www.springframework.org/schema/aop/spring-aop-4.0.xsd
+       http://www.springframework.org/schema/tx
+       http://www.springframework.org/schema/tx/spring-tx-4.0.xsd
+       ">
+    <!-- 注解配置Spring -->
+    <context:annotation-config/>
+    <!--扫描包-->
+    <context:component-scan base-package="tmall"/>
+    <!-- 加载数据库设置 -->
+    <context:property-placeholder location="classpath:*.properties"/>
+    <!-- 开启AOP 注解配置-->
+    <aop:aspectj-autoproxy proxy-target-class="true"/>
+
+    <!-- 配置Druid -->
+    <bean id="dataSource" class="com.alibaba.druid.pool.DruidDataSource" init-method="init" destroy-method="close">
+        <!-- 基本属性 url、user、password -->
+        <property name="driverClassName" value="${jdbc.driver}"></property>
+        <property name="url" value="${jdbc.url}"/>
+        <property name="username" value="${jdbc.username}"/>
+        <property name="password" value="${jdbc.password}"/>
+
+        <!-- 配置初始化大小；最小、最大 -->
+        <property name="initialSize" value="1"/>
+        <property name="minIdle" value="1"/>
+        <property name="maxActive" value="20"/>
+
+        <!-- 配置获取连接等待超时的时间 -->
+        <property name="maxWait" value="60000"/>
+
+        <!-- 配置间隔多久才进行一次检测，检测需要关闭的空闲连接，单位是毫秒 -->
+        <property name="timeBetweenEvictionRunsMillis" value="60000"/>
+
+        <!-- 配置一个连接在池中最小生存的时间，单位是毫秒 -->
+        <property name="minEvictableIdleTimeMillis" value="300000"/>
+        <!--定义在从数据库获取新连接失败后重复尝试的次数。Default: 30 -->
+
+        <property name="validationQuery" value="SELECT 1"/>
+        <property name="testWhileIdle" value="true"/>
+        <property name="testOnBorrow" value="false"/>
+        <property name="testOnReturn" value="false"/>
+
+        <!-- 打开PSCache，并且指定每个连接上PSCache的大小 -->
+        <property name="poolPreparedStatements" value="true"/>
+        <property name="maxPoolPreparedStatementPerConnectionSize"
+                  value="20"/>
+    </bean>
+
+    <!-- 定义事务管理器 -->
+    <bean id="transactionManager"
+          class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+    <!--使用注释事务 -->
+    <tx:annotation-driven transaction-manager="transactionManager"/>
+
+    <!-- 配置Mybatis -->
+    <bean id="sqlSession" class="org.mybatis.spring.SqlSessionFactoryBean">
+        <property name="typeAliasesPackage" value="tmall.pojo"/>
+        <property name="configLocation" value="classpath:mybatis-config.xml"/>
+        <property name="dataSource" ref="dataSource"/>
+        <!--自动扫描所有的mapper.xml文件-->
+        <property name="mapperLocations">
+            <list>
+                <value>classpath:tmall/mapper/*.xml</value>
+            </list>
+        </property>
+        <!--注册分页插件-->
+        <property name="plugins">
+            <array>
+                <bean class="com.github.pagehelper.PageInterceptor">
+                    <property name="properties">
+                        <value>
+                        </value>
+                    </property>
+                </bean>
+            </array>
+        </property>
+    </bean>
+
+    <bean id="sqlSessionTemplate" class="org.mybatis.spring.SqlSessionTemplate">
+        <constructor-arg index="0" ref="sqlSession"/>
+    </bean>
+    <!-- MapperScannerConfigurer：mapper的扫描器，将包下边的mapper接口自动创建代理对象，
+        自动创建到spring容器中，bean的id是mapper的类名（首字母小写）-->
+    <bean class="org.mybatis.spring.mapper.MapperScannerConfigurer">
+        <property name="basePackage" value="tmall.mapper"/>
+    </bean>
+
+    <!--Redis配置  单机版-->
+    <!--redis 连接池-->
+    <bean id="jedisConfig" class="redis.clients.jedis.JedisPoolConfig">
+        <property name="maxTotal" value="${redis.maxTotal}"></property>
+        <property name="maxIdle" value="${redis.maxIdle}"></property>
+        <property name="minIdle" value="${redis.minIdle}"></property>
+    </bean>
+    <!-- redis连接工厂 -->
+    <bean id="connectionFactory" class="org.springframework.data.redis.connection.jedis.JedisConnectionFactory">
+        <property name="hostName" value="${redis.url}"></property>
+        <property name="port" value="${redis.port}"></property>
+        <property name="password" value="${redis.password}"></property>
+        <property name="poolConfig" ref="jedisConfig"></property>
+    </bean>
+    <!-- redis操作模板，这里采用尽量面向对象的模板 -->
+    <bean id="redisTemplate" class="org.springframework.data.redis.core.StringRedisTemplate">
+        <property name="connectionFactory" ref="connectionFactory"/>
+        <!--如果不配置Serializer，那么存储的时候只能使用String，如果用对象类型存储，那么会提示错误 can't cast to String！！！-->
+        <property name="keySerializer">
+            <bean class="org.springframework.data.redis.serializer.StringRedisSerializer"/>
+        </property>
+        <property name="valueSerializer">
+            <bean class="org.springframework.data.redis.serializer.JdkSerializationRedisSerializer"/>
+        </property>
+        <!--开启事务-->
+        <property name="enableTransactionSupport" value="true"/>
+    </bean>
+
+    <!--shiro配置-->
+    <bean id="shiroFilter" class="org.apache.shiro.spring.web.ShiroFilterFactoryBean">
+        <property name="securityManager" ref="securityManager"/>
+        <!-- loginUrl认证提交地址，如果没有认证将会请求此地址进行认证，请求此地址将由formAuthenticationFilter进行表单认证 -->
+        <property name="loginUrl" value="/loginIn"/>
+        <!-- 通过unauthorizedUrl指定没有权限操作时跳转页面，WEB-INF下的jsp文件无法通过重定向访问-->
+       <!-- <property name="unauthorizedUrl" value="/WEB-INF/jsp/500.jsp"/>-->
+        <property name="filters">
+            <map>
+                <!-- 将自定义 的FormAuthenticationFilter注入shiroFilter中-->
+                <entry key="authc" value-ref="formAuthenticationFilter"/>
+            </map>
+        </property>
+        <!-- 过虑器链定义，从上向下顺序执行，一般将/**放在最下边 -->
+        <property name="filterChainDefinitions">
+            <value>
+                <!-- 对静态资源设置匿名访问 -->
+                /img/** = anon
+                /js/** = anon
+                /css/** = anon
+                /pictures/**=anon
+                /fonts/** = anon
+                <!-- 请求 logout地址，shiro去清除session,controller中不需要再写logout方法-->
+                /logout = logout
+                /=anon
+                /category=anon
+                /checkUsername=anon
+                /product=anon
+                /registerSuccess.jsp=anon
+                /searchProductName=anon
+                /search=anon
+                /solrSearch=anon
+                /register=anon
+                /registerAdd=anon
+                /resetPassword=anon
+                /resetSuccess.jsp=anon
+                /forgetPassword=anon
+                /error.jsp=anon
+                <!--只有superAdmin才能访问-->
+                /admin/** = authc, roles[superAdmin]
+                <!-- /** = authc 所有url都必须认证通过才可以访问-->
+                /** = authc
+
+            </value>
+        </property>
+    </bean>
+
+    <!-- securityManager安全管理器 -->
+    <bean id="securityManager" class="org.apache.shiro.web.mgt.DefaultWebSecurityManager">
+        <property name="realm" ref="loginRealm"/>
+        <!-- 注入session管理器 -->
+        <property name="sessionManager" ref="sessionManager"/>
+    </bean>
+
+    <!-- realm -->
+    <bean id="loginRealm" class="tmall.realm.LoginRealm">
+        <!-- 将凭证匹配器设置到realm中，realm按照凭证匹配器的要求进行散列 -->
+        <property name="credentialsMatcher" ref="credentialsMatcher"/>
+    </bean>
+
+    <!-- 凭证匹配器 -->
+    <bean id="credentialsMatcher"
+          class="org.apache.shiro.authc.credential.HashedCredentialsMatcher">
+        <property name="hashAlgorithmName" value="md5"/>
+        <property name="hashIterations" value="2"/>
+    </bean>
+
+    <!--自定义登录成功保存用户信息到session-->
+    <bean id="formAuthenticationFilter" class="tmall.realm.LoginSuccess">
+        <property name="usernameParam" value="username"/>
+        <property name="passwordParam" value="password"/>
+    </bean>
+    <!--自定义拦截ajax请求-->
+    <!-- <bean id="myAjaxFilter" class="tmall.realm.AjaxFilter">
+     </bean>-->
+
+    <!-- 会话管理器 -->
+    <bean id="sessionManager" class="org.apache.shiro.web.session.mgt.DefaultWebSessionManager">
+        <!-- session的失效时长，单位毫秒 -->
+        <property name="globalSessionTimeout" value="36000000"/>
+        <!-- 删除失效的session -->
+        <property name="deleteInvalidSessions" value="true"/>
+    </bean>
+
+    <!--solr7配置-->
+    <bean id="httpSolrClient" class="org.apache.solr.client.solrj.impl.HttpSolrClient">
+        <constructor-arg name="builder" value="http://127.0.0.1:8082/solr/mycore"/>
+    </bean>
+</beans>
